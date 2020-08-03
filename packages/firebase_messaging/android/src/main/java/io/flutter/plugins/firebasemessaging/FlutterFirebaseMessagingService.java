@@ -69,12 +69,15 @@ public class FlutterFirebaseMessagingService extends FirebaseMessagingService {
 
     backgroundContext = getApplicationContext();
     FlutterMain.ensureInitializationComplete(backgroundContext, null);
+    Log.d(TAG, "onCreate: service init complete");
 
     // If background isolate is not running start it.
     if (!isIsolateRunning.get()) {
+      Log.d(TAG, "onCreate: bg isolate is not running yet");
       SharedPreferences p = backgroundContext.getSharedPreferences(SHARED_PREFERENCES_KEY, 0);
       long callbackHandle = p.getLong(BACKGROUND_SETUP_CALLBACK_HANDLE_KEY, 0);
       startBackgroundIsolate(backgroundContext, callbackHandle);
+      Log.d(TAG, "onCreate: bg isolate started");
     }
   }
 
@@ -88,15 +91,20 @@ public class FlutterFirebaseMessagingService extends FirebaseMessagingService {
     // If application is running in the foreground use local broadcast to handle message.
     // Otherwise use the background isolate to handle message.
     if (isApplicationForeground(this)) {
+      Log.d(TAG, "oMR: application is in foreground, send local broadcast");
       Intent intent = new Intent(ACTION_REMOTE_MESSAGE);
       intent.putExtra(EXTRA_REMOTE_MESSAGE, remoteMessage);
       LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
+      Log.d(TAG, "oMR: LocalBroadcastManager sent intent " + ACTION_REMOTE_MESSAGE);
     } else {
       // If background isolate is not running yet, put message in queue and it will be handled
       // when the isolate starts.
+      Log.d(TAG, "oMR: application is NOT in foreground");
       if (!isIsolateRunning.get()) {
+        Log.d(TAG, "oMR: bg isolate is not running yet, queue message");
         backgroundMessageQueue.add(remoteMessage);
       } else {
+        Log.d(TAG, "oMR: bg isolate is running, executeDartCallbackInBackgroundIsolate");
         final CountDownLatch latch = new CountDownLatch(1);
         new Handler(getMainLooper())
             .post(
@@ -109,6 +117,7 @@ public class FlutterFirebaseMessagingService extends FirebaseMessagingService {
                 });
         try {
           latch.await();
+          Log.d(TAG, "oMR: bg isolate callback complete, latch released");
         } catch (InterruptedException ex) {
           Log.i(TAG, "Exception waiting to execute Dart callback", ex);
         }
@@ -139,6 +148,7 @@ public class FlutterFirebaseMessagingService extends FirebaseMessagingService {
    *     handling on the dart side.
    */
   public static void startBackgroundIsolate(Context context, long callbackHandle) {
+    Log.d(TAG, "startBgI: bg isolate starting");
     FlutterMain.ensureInitializationComplete(context, null);
     String appBundlePath = FlutterMain.findAppBundlePath();
     FlutterCallbackInformation flutterCallback =
@@ -162,6 +172,7 @@ public class FlutterFirebaseMessagingService extends FirebaseMessagingService {
       args.libraryPath = flutterCallback.callbackLibraryPath;
       backgroundFlutterView.runFromBundle(args);
       pluginRegistrantCallback.registerWith(backgroundFlutterView.getPluginRegistry());
+      Log.d(TAG, "startBgI: bg isolate started with backgroundFlutterView");
     }
   }
 
@@ -171,14 +182,18 @@ public class FlutterFirebaseMessagingService extends FirebaseMessagingService {
    */
   public static void onInitialized() {
     isIsolateRunning.set(true);
+    Log.d(TAG, "onInit: bg isolate marked as running");
     synchronized (backgroundMessageQueue) {
       // Handle all the messages received before the Dart isolate was
       // initialized, then clear the queue.
+      Log.d(TAG, "onInit: clear messages already queued");
       Iterator<RemoteMessage> i = backgroundMessageQueue.iterator();
       while (i.hasNext()) {
+        Log.d(TAG, "onInit: handle queued message");
         executeDartCallbackInBackgroundIsolate(backgroundContext, i.next(), null);
       }
       backgroundMessageQueue.clear();
+      Log.d(TAG, "onInit: backgroundMessageQueue cleared");
     }
   }
 
@@ -255,6 +270,7 @@ public class FlutterFirebaseMessagingService extends FirebaseMessagingService {
    */
   private static void executeDartCallbackInBackgroundIsolate(
       Context context, RemoteMessage remoteMessage, final CountDownLatch latch) {
+    Log.d(TAG, "executeDartCallbackInBackgroundIsolate");
     if (backgroundChannel == null) {
       throw new RuntimeException(
           "setBackgroundChannel was not called before messages came in, exiting.");
@@ -263,6 +279,7 @@ public class FlutterFirebaseMessagingService extends FirebaseMessagingService {
     // If another thread is waiting, then wake that thread when the callback returns a result.
     MethodChannel.Result result = null;
     if (latch != null) {
+      Log.d(TAG, "latch is not null, get LatchResult");
       result = new LatchResult(latch).getResult();
     }
 
@@ -282,6 +299,7 @@ public class FlutterFirebaseMessagingService extends FirebaseMessagingService {
 
     args.put("message", messageData);
 
+    Log.d(TAG, "invoke background message handler");
     backgroundChannel.invokeMethod("handleBackgroundMessage", args, result);
   }
 
